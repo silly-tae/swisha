@@ -1,0 +1,63 @@
+# swisha, one instance. Copy to /etc/systemd/system/swisha.service.
+#
+#   sudo useradd --system --no-create-home --shell /usr/sbin/nologin swisha
+#   sudo cp examples/swisha.service.example /etc/systemd/system/swisha.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now swisha
+#
+# For several instances, one per Swish number, use
+# swisha@.service.example instead.
+
+[Unit]
+Description=swisha payouts
+Documentation=https://github.com/silly-tae/swisha
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+# A misconfiguration is not transient. Give up rather than restarting into
+# the same error for the rest of the day. These live in [Unit], not
+# [Service]: systemd moved them in v229 and ignores them in the old place.
+StartLimitBurst=5
+StartLimitIntervalSec=120
+
+[Service]
+Type=exec
+User=swisha
+Group=swisha
+ExecStart=/usr/local/bin/swisha
+
+# Everything swisha reads lives in this one file.
+Environment=SWISHA_ENV_FILE=/etc/swisha/active.env
+
+# /run is tmpfs and is wiped on every reboot, so the socket's directory has
+# to be recreated on each start. swisha refuses to boot without it rather
+# than binding somewhere unintended. The env file's SWISH_SERVER_SOCKET
+# must point inside this directory.
+RuntimeDirectory=swisha
+RuntimeDirectoryMode=0750
+
+Restart=on-failure
+RestartSec=5
+
+# Hardening. swisha writes nothing outside RuntimeDirectory, never execs,
+# and needs only the three address families below: Unix for its own socket,
+# INET for Swish and PostgreSQL.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,49 @@
+[package]
+name    = "swisha"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+license = "MIT"
+description = "A standalone service for Swish payouts: signing, double-payout guards and status recovery."
+repository = "https://github.com/silly-tae/swisha"
+authors = ["Taeha (silly-tae)"]
+readme = "README.md"
+publish = false
+# Cargo drops target/ on its own, but stating both keeps the list readable next to .gitignore.
+# tasks/ is working notes and must never reach crates.io, where a release cannot be withdrawn.
+exclude = ["/target", "/tasks"]
+
+[lib]
+name = "swisha"
+path = "src/lib.rs"
+
+[[bin]]
+name = "swisha"
+path = "src/main.rs"
+required-features = ["http"]
+
+[features]
+default = ["http"]
+# The HTTP service. Omit it to use swisha as a library: the payout engine, the storage trait
+# and the Swish client with no web framework attached.
+http    = ["dep:axum", "dep:tokio-stream"]
+
+[dependencies]
+axum       = { version = "0.8", optional = true }
+tokio-stream = { version = "0.1", features = ["sync"], optional = true }
+tokio      = { version = "1", features = ["rt-multi-thread", "macros", "net", "time", "sync"] }
+sqlx       = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "postgres"] }
+serde      = { version = "1", features = ["derive"] }
+# raw_value keeps the signed payload byte-identical between signing and transmission.
+serde_json = { version = "1", features = ["raw_value"] }
+tracing    = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt"] }
+reqwest    = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+ring       = "0.17"
+
+[profile.release]
+opt-level     = 3
+lto           = true
+codegen-units = 1
+strip         = true
+panic         = "abort"

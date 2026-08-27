@@ -1,0 +1,77 @@
+# swisha, one instance per Swish number.
+# Copy to /etc/systemd/system/swisha@.service.
+#
+# The trailing @ makes this a template. Whatever follows the @ when you
+# start it becomes %i, and one file serves any number of instances:
+#
+#   sudo cp examples/swisha@.service.example \
+#        /etc/systemd/system/swisha@.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now swisha@malmo swisha@ystad
+#
+#   %i = malmo   reads /etc/swisha/malmo.env, socket /run/swisha-malmo/
+#   %i = ystad   reads /etc/swisha/ystad.env, socket /run/swisha-ystad/
+#
+# systemd does not check the name against anything, so swisha@typo starts
+# and then fails on the missing env file. That is the intended gate: the
+# file's existence is what makes an instance real. Logs are per instance
+# too, via journalctl -u swisha@malmo.
+#
+# Each instance owns its whole configuration. Nothing swisha reads is set
+# here, so a city's env file is the complete and only record of what that
+# city does.
+
+[Unit]
+Description=swisha payouts (%i)
+Documentation=https://github.com/silly-tae/swisha
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+# A misconfiguration is not transient. Give up rather than restarting into
+# the same error for the rest of the day. One instance failing never affects
+# the others. These live in [Unit], not [Service]: systemd moved them in
+# v229 and ignores them in the old place.
+StartLimitBurst=5
+StartLimitIntervalSec=120
+
+[Service]
+Type=exec
+User=swisha
+Group=swisha
+ExecStart=/usr/local/bin/swisha
+
+Environment=SWISHA_ENV_FILE=/etc/swisha/%i.env
+
+# One runtime directory per instance, never a shared one. systemd deletes a
+# RuntimeDirectory when its unit stops, so a single shared /run/swisha would
+# vanish for every other instance the moment one city was restarted. Each
+# instance's SWISH_SERVER_SOCKET must point inside its own directory:
+# /run/swisha-malmo/swisha.sock for swisha@malmo, and so on.
+RuntimeDirectory=swisha-%i
+RuntimeDirectoryMode=0750
+
+Restart=on-failure
+RestartSec=5
+
+# Hardening. swisha writes nothing outside RuntimeDirectory, never execs,
+# and needs only the three address families below: Unix for its own socket,
+# INET for Swish and PostgreSQL.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

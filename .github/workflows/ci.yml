@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  check:
+    name: clippy, tests and docs
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: swisha
+          POSTGRES_PASSWORD: swisha
+          POSTGRES_DB: swisha_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+
+      - name: clippy
+        run: cargo clippy --all-targets -- -D warnings
+      # http is optional, so the library-only build needs a pass of its own or it rots unnoticed.
+      - name: clippy (library only, no http)
+        run: cargo clippy --all-targets --no-default-features -- -D warnings
+
+      # Every test needs a database. The suite refuses to run without one rather than skipping,
+      # so a missing service here fails the job instead of reporting a green nothing.
+      - name: tests
+        run: cargo test
+        env:
+          SWISHA_TEST_DATABASE_URL: postgres://swisha:swisha@localhost:5432/swisha_test
+
+      # missing_docs and broken intra-doc links are both denied, and only rustdoc enforces them.
+      - name: docs
+        run: cargo doc --no-deps
+
+  audit:
+    name: dependency advisories
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Three advisories landed against the rust-postgres family on a single day in June 2026.
+      # Nothing in a repository notices that on its own.
+      - uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  msrv:
+    name: minimum supported Rust version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # rust-version in Cargo.toml is only a declaration until something builds against it.
+      - uses: dtolnay/rust-toolchain@1.90.0
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build
+      # Without http the binary has unmet required-features and is silently skipped.
+      - run: cargo build --no-default-features
